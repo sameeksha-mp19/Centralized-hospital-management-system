@@ -1,39 +1,63 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react"; // 1. Import useCallback
 import { NavLink, useNavigate } from "react-router-dom";
+import { toast } from "react-toastify";
 
 export default function PrescriptionHistory() {
   const navigate = useNavigate();
   const [prescriptions, setPrescriptions] = useState([]);
+  const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    // Simulated API response
-    const mockData = [
-      {
-        id: 1,
-        doctor: "Dr. Rao",
-        department: "Cardiology",
-        date: "2025-06-01",
-        diagnosis: "Hypertension",
-        medicines: ["Amlodipine", "Telmisartan"],
-      },
-      {
-        id: 2,
-        doctor: "Dr. Kamath",
-        department: "Orthopedics",
-        date: "2025-05-25",
-        diagnosis: "Knee Pain",
-        medicines: ["Paracetamol", "Physiotherapy"],
-      },
-    ];
-
-    setPrescriptions(mockData);
-  }, []);
-
-  const handleLogout = () => {
+  // 2. Wrap the function in useCallback
+  const handleLogout = useCallback(() => {
     localStorage.removeItem("token");
     localStorage.removeItem("userData");
+    toast.info("You have been logged out.");
     navigate("/login");
-  };
+  }, [navigate]); // 3. Add its dependencies (navigate)
+
+  useEffect(() => {
+    const fetchPrescriptions = async () => {
+      try {
+        const token = localStorage.getItem("token");
+        if (!token) {
+          throw new Error("No authorization token found, please log in again.");
+        }
+
+        const response = await fetch("http://localhost:5000/api/patient/prescriptions", {
+            headers: { Authorization: `Bearer ${token}` }
+        });
+
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.message || "Failed to fetch prescriptions");
+        }
+        
+        const data = await response.json();
+        
+        const formattedData = data.map(p => ({
+            id: p._id,
+            doctor: p.doctorId ? p.doctorId.name : 'Unknown Doctor',
+            department: p.appointmentId ? p.appointmentId.department : 'N/A',
+            date: new Date(p.date).toLocaleDateString(),
+            diagnosis: p.diagnosis,
+            medicines: p.medicines
+        }));
+
+        setPrescriptions(formattedData);
+      } catch (err) {
+        toast.error(err.message);
+        // Using includes is a bit fragile, but works for this case.
+        // A better way would be to check response status code (e.g., 401)
+        if (err.message.includes("auth") || err.message.includes("token")) {
+          handleLogout();
+        }
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    fetchPrescriptions();
+  }, [handleLogout]); // 4. Add the stable handleLogout function to the dependency array
 
   return (
     <div className="flex">
@@ -69,7 +93,6 @@ export default function PrescriptionHistory() {
           </nav>
         </div>
 
-        {/* Logout button at bottom */}
         <button
           onClick={handleLogout}
           className="mt-auto w-full px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600"
@@ -81,16 +104,17 @@ export default function PrescriptionHistory() {
       {/* Main Content */}
       <div className="flex-1 p-6 bg-gray-50">
         <h2 className="text-2xl font-bold mb-6">📁 Prescription History</h2>
-
         <div className="bg-white shadow rounded p-4">
-          {prescriptions.length === 0 ? (
+          {loading ? (
+            <p className="text-gray-600 p-4">Loading prescriptions...</p>
+          ) : prescriptions.length === 0 ? (
             <p className="text-gray-600 p-4">No prescriptions found.</p>
           ) : (
             <ul className="space-y-4">
               {prescriptions.map((item) => (
                 <li
                   key={item.id}
-                  className="border p-4 rounded flex flex-col sm:flex-row justify-between items-start sm:items-center"
+                  className="border p-4 rounded"
                 >
                   <div>
                     <div className="flex gap-4 text-sm text-gray-500 mb-1">
@@ -107,12 +131,6 @@ export default function PrescriptionHistory() {
                       <strong>Medicines:</strong> {item.medicines.join(", ")}
                     </div>
                   </div>
-                  {/* <button
-                    onClick={() => console.log("View details", item.id)}
-                    className="mt-2 sm:mt-0 px-3 py-1 bg-blue-500 text-white text-sm rounded hover:bg-blue-600"
-                  >
-                    View Details
-                  </button> */}
                 </li>
               ))}
             </ul>
